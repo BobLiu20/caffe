@@ -300,18 +300,18 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
 
   // Do random color shift
   if (max_color_shift > 0 && phase_ == TRAIN) {
-    int b = Rand(max_color_shift + 1);
-    int g = Rand(max_color_shift + 1);
-    int r = Rand(max_color_shift + 1);
-    int sign = Rand(2);
-
-    cv::Mat shiftArr = cv_img.clone();
-    shiftArr.setTo(cv::Scalar(b,g,r));
-
-    if (sign == 1) {
-      cv_img -= shiftArr;
-    } else {
-      cv_img += shiftArr;
+    int sign = Rand(3); // 2 will skip
+    if (sign < 2) {
+      int b = Rand(max_color_shift + 1);
+      int g = Rand(max_color_shift + 1);
+      int r = Rand(max_color_shift + 1);
+      cv::Mat shiftArr = cv_img.clone();
+      shiftArr.setTo(cv::Scalar(b,g,r));
+      if (sign == 1) {
+        cv_img -= shiftArr;
+      } else {
+        cv_img += shiftArr;
+      }
     }
   }
 
@@ -326,7 +326,7 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
 
   // Do smoothness
   if (max_smooth > 1 && phase_ == TRAIN) {
-    int smooth_type = Rand(4);
+    int smooth_type = Rand(6); // 4 and 5 will skip
     int smooth_param = 1 + 2 * Rand(max_smooth/2);
     switch (smooth_type) {
       case 0:
@@ -370,10 +370,14 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
       CHECK_LE(2 * crop_pad, img_height);
       CHECK_EQ(crop_pad_new_size, width);
       CHECK_EQ(crop_pad_new_size, height);
-      x1_off = Rand(crop_pad + 1);
-      x2_off = Rand(crop_pad + 1);
-      y1_off = Rand(crop_pad + 1);
-      y2_off = Rand(crop_pad + 1);
+      if (Rand(4) == 0) {
+        x1_off = x2_off = y1_off = y2_off = crop_pad;
+      } else {
+        x1_off = Rand(crop_pad + 1);
+        x2_off = Rand(crop_pad + 1);
+        y1_off = Rand(crop_pad + 1);
+        y2_off = Rand(crop_pad + 1);
+      }
       cv::Rect roi(x1_off, y1_off, img_width - x1_off - x2_off, img_height - y1_off - y2_off);
       cv_cropped_img = cv_img(roi);
     }
