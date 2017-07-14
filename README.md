@@ -1,3 +1,79 @@
+## What's News
+* Add image data layer to support multi-label output.  
+* Add more augmentation method for data transform.  
+    An example usage is (3x64x64 output):  
+```
+layer {
+  name: "data"
+  type: "ImageData"
+  top: "data"
+  top: "label"
+  top: "score"
+  include {
+    phase: TRAIN
+  }
+  transform_param {
+    # scale: 0.00390625
+    mirror: true
+    # crop_size: 0          # crop_size and crop_pad cannot be specified at the same time
+    # mean_file: "mean_file"
+    mean_value: 127         # repeat this option for other channels
+    # force_color: false    # Force the decoded image to have 3 color channels.
+    # force_gray: false     # Force the decoded image to have 1 color channels.
+
+    ############################Notice################################
+    # If you would like to use below Augmentation
+    # Please clone caffe source from https://github.com/BobLiu20/caffe
+
+    max_rotate_angle: 2.0   # Specify the angle for doing random rotate
+    min_contrast: 0.8       # contrast, brightness in random
+    max_contrast: 1.2       # contrast, brightness in random
+    max_brightness_shift: 5 # contrast, brightness in random
+    max_smooth: 6           # random kernel size of blur
+    max_color_shift: 10     # random shift R, G, B 
+    crop_pad: 15            # random cutting edge in top, bottom, left and right
+    crop_pad_new_size: 64   # for crop_pad. resize image to it after all pre-process
+  }
+  image_data_param {
+    source: "train.txt"
+    batch_size: 256
+    shuffle: true
+  }
+}
+
+layer {
+  name: "data"
+  type: "ImageData"
+  top: "data"
+  top: "label"
+  top: "score"
+  include {
+    phase: TEST
+  }
+  transform_param {
+    # scale: 0.00390625
+    mirror: false
+    # crop_size: 0          # crop_size and crop_pad cannot be specified at the same time
+    # mean_file: "mean_file"
+    mean_value: 127         # repeat this option for other channels
+
+    ############################Notice################################
+    # If you would like to use below Augmentation
+    # Please clone caffe source from https://github.com/BobLiu20/caffe
+
+    crop_pad: 15            # random cutting edge in top, bottom, left and right
+    crop_pad_new_size: 64   # for crop_pad. resize image to it after all pre-process
+  }
+  image_data_param {
+    source: "train.txt"
+    batch_size: 256
+  }
+}
+```
+
+
+
+
 # Caffe
 
 [![Build Status](https://travis-ci.org/BVLC/caffe.svg?branch=master)](https://travis-ci.org/BVLC/caffe)

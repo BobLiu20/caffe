@@ -1,5 +1,10 @@
 #ifdef USE_OPENCV
 #include <opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/opencv.hpp>
 #endif  // USE_OPENCV
 
 #include <string>
@@ -9,6 +14,10 @@
 #include "caffe/util/io.hpp"
 #include "caffe/util/math_functions.hpp"
 #include "caffe/util/rng.hpp"
+#include <math.h>
+
+#define PI 3.14159265358979323846
+
 
 namespace caffe {
 
@@ -130,7 +139,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const Datum& datum,
                                        Blob<Dtype>* transformed_blob) {
-  // If datum is encoded, decode and transform the cv::image.
+  // If datum is encoded, decoded and transform the cv::image.
   if (datum.encoded()) {
 #ifdef USE_OPENCV
     CHECK(!(param_.force_color() && param_.force_gray()))
@@ -225,10 +234,19 @@ void DataTransformer<Dtype>::Transform(const vector<cv::Mat> & mat_vector,
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
                                        Blob<Dtype>* transformed_blob) {
-  const int crop_size = param_.crop_size();
   const int img_channels = cv_img.channels();
   const int img_height = cv_img.rows;
   const int img_width = cv_img.cols;
+  const int crop_size = param_.crop_size();
+  const int crop_pad = param_.crop_pad();
+  const int crop_pad_new_size = param_.crop_pad_new_size();
+  const float max_rotate_angle = param_.max_rotate_angle();
+  const bool rotate_all_directions = param_.rotate_all_directions();
+  const float min_contrast = param_.min_contrast();
+  const float max_contrast = param_.max_contrast();
+  const int max_brightness_shift = param_.max_brightness_shift();
+  const int max_smooth = param_.max_smooth();
+  const int max_color_shift = param_.max_color_shift();
 
   // Check dimensions.
   const int channels = transformed_blob->channels();
@@ -252,6 +270,120 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
   CHECK_GE(img_height, crop_size);
   CHECK_GE(img_width, crop_size);
 
+  // Do random rotate
+  if (max_rotate_angle != 0.0 && phase_ == TRAIN) {
+    float angle = float(Rand(int(max_rotate_angle*2.0*100.0 + 1.0)))/100.0 - max_rotate_angle;
+    // get rotate matrix for rotating the image around its center
+    cv::Point2f center(img_width / 2.0, img_height / 2.0);
+    cv::Mat rot = cv::getRotationMatrix2D(center, angle, 1.0);
+    cv::Mat im;
+    cv::warpAffine(cv_img, im, rot, cv_img.size());
+    im.copyTo(cv_img);
+  }
+
+  // Do random rotate 90/180/270 degress
+  if (rotate_all_directions && phase_ == TRAIN) {
+    int dir = Rand(4);
+    if(dir == 3){
+        // Rotate clockwise 270 degrees
+        cv::transpose(cv_img, cv_img);
+        cv::flip(cv_img, cv_img, 0);
+    }else if(dir == 2){
+        // Rotate clockwise 180 degrees
+        cv::flip(cv_img, cv_img, -1);
+    }else if(dir == 1){
+        // Rotate clockwise 90 degrees
+        cv::transpose(cv_img, cv_img);
+        cv::flip(cv_img, cv_img, 1);
+    }
+  }
+
+  // Do random color shift
+  if (max_color_shift > 0 && phase_ == TRAIN) {
+    int b = Rand(max_color_shift + 1);
+    int g = Rand(max_color_shift + 1);
+    int r = Rand(max_color_shift + 1);
+    int sign = Rand(2);
+
+    cv::Mat shiftArr = cv_img.clone();
+    shiftArr.setTo(cv::Scalar(b,g,r));
+
+    if (sign == 1) {
+      cv_img -= shiftArr;
+    } else {
+      cv_img += shiftArr;
+    }
+  }
+
+  // Do contrast and brightness
+  if (min_contrast < max_contrast && max_brightness_shift && phase_ == TRAIN) {
+    float alpha;
+    int beta;
+    caffe_rng_uniform(1, min_contrast, max_contrast, &alpha);
+    beta = Rand(max_brightness_shift * 2 + 1) - max_brightness_shift;
+    cv_img.convertTo(cv_img, -1, alpha, beta);
+  }
+
+  // Do smoothness
+  if (max_smooth > 1 && phase_ == TRAIN) {
+    int smooth_type = Rand(4);
+    int smooth_param = 1 + 2 * Rand(max_smooth/2);
+    switch (smooth_type) {
+      case 0:
+        cv::GaussianBlur(cv_img, cv_img, cv::Size(smooth_param, smooth_param), 0);
+        break;
+      case 1:
+        cv::blur(cv_img, cv_img, cv::Size(smooth_param, smooth_param));
+        break;
+      case 2:
+        cv::medianBlur(cv_img, cv_img, smooth_param);
+        break;
+      case 3:
+        cv::boxFilter(cv_img, cv_img, -1, cv::Size(smooth_param * 2, smooth_param * 2));
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Do crop.
+  cv::Mat cv_cropped_img = cv_img;
+  int h_off = 0;
+  int w_off = 0;
+  int x1_off = 0, x2_off = 0, y1_off = 0, y2_off = 0;
+  if (crop_size) {
+    CHECK_EQ(crop_size, height);
+    CHECK_EQ(crop_size, width);
+    // We only do random crop when we do training.
+    if (phase_ == TRAIN) {
+      h_off = Rand(img_height - crop_size + 1);
+      w_off = Rand(img_width - crop_size + 1);
+    } else {
+      h_off = (img_height - crop_size) / 2;
+      w_off = (img_width - crop_size) / 2;
+    }
+    cv::Rect roi(w_off, h_off, crop_size, crop_size);
+    cv_cropped_img = cv_img(roi);
+  } else if (crop_pad) {
+    if (phase_ == TRAIN) {
+      CHECK_LE(2 * crop_pad, img_width);
+      CHECK_LE(2 * crop_pad, img_height);
+      CHECK_EQ(crop_pad_new_size, width);
+      CHECK_EQ(crop_pad_new_size, height);
+      x1_off = Rand(crop_pad + 1);
+      x2_off = Rand(crop_pad + 1);
+      y1_off = Rand(crop_pad + 1);
+      y2_off = Rand(crop_pad + 1);
+      cv::Rect roi(x1_off, y1_off, img_width - x1_off - x2_off, img_height - y1_off - y2_off);
+      cv_cropped_img = cv_img(roi);
+    }
+    cv::resize(cv_cropped_img, cv_cropped_img, cv::Size(width, height));
+  } else {
+    CHECK_EQ(img_height, height);
+    CHECK_EQ(img_width, width);
+  }
+
+  // Get mean
   Dtype* mean = NULL;
   if (has_mean_file) {
     CHECK_EQ(img_channels, data_mean_.channels());
@@ -268,27 +400,6 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
         mean_values_.push_back(mean_values_[0]);
       }
     }
-  }
-
-  int h_off = 0;
-  int w_off = 0;
-  cv::Mat cv_cropped_img = cv_img;
-  if (crop_size) {
-    CHECK_EQ(crop_size, height);
-    CHECK_EQ(crop_size, width);
-    // We only do random crop when we do training.
-    if (phase_ == TRAIN) {
-      h_off = Rand(img_height - crop_size + 1);
-      w_off = Rand(img_width - crop_size + 1);
-    } else {
-      h_off = (img_height - crop_size) / 2;
-      w_off = (img_width - crop_size) / 2;
-    }
-    cv::Rect roi(w_off, h_off, crop_size, crop_size);
-    cv_cropped_img = cv_img(roi);
-  } else {
-    CHECK_EQ(img_height, height);
-    CHECK_EQ(img_width, width);
   }
 
   CHECK(cv_cropped_img.data);
@@ -308,7 +419,14 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
         // int top_index = (c * height + h) * width + w;
         Dtype pixel = static_cast<Dtype>(ptr[img_index++]);
         if (has_mean_file) {
-          int mean_index = (c * img_height + h_off + h) * img_width + w_off + w;
+          int mean_index = 0;
+          if (crop_size) {
+            mean_index = (c * img_height + h_off + h) * img_width + w_off + w;
+          } else if (crop_pad) {
+            mean_index = (c * img_height + y1_off + h) * img_width + x1_off + w;
+          } else {
+            mean_index = (c * img_height + h) * img_width + w;
+          }
           transformed_data[top_index] =
             (pixel - mean[mean_index]) * scale;
         } else {
@@ -458,6 +576,8 @@ vector<int> DataTransformer<Dtype>::InferBlobShape(const Datum& datum) {
 #endif  // USE_OPENCV
   }
   const int crop_size = param_.crop_size();
+  const int crop_pad = param_.crop_pad();
+  const int crop_pad_new_size = param_.crop_pad_new_size();
   const int datum_channels = datum.channels();
   const int datum_height = datum.height();
   const int datum_width = datum.width();
@@ -469,8 +589,8 @@ vector<int> DataTransformer<Dtype>::InferBlobShape(const Datum& datum) {
   vector<int> shape(4);
   shape[0] = 1;
   shape[1] = datum_channels;
-  shape[2] = (crop_size)? crop_size: datum_height;
-  shape[3] = (crop_size)? crop_size: datum_width;
+  shape[2] = (crop_size)? crop_size: (crop_pad ? crop_pad_new_size : datum_height);
+  shape[3] = (crop_size)? crop_size: (crop_pad ? crop_pad_new_size : datum_width);
   return shape;
 }
 
@@ -490,6 +610,8 @@ vector<int> DataTransformer<Dtype>::InferBlobShape(
 template<typename Dtype>
 vector<int> DataTransformer<Dtype>::InferBlobShape(const cv::Mat& cv_img) {
   const int crop_size = param_.crop_size();
+  const int crop_pad = param_.crop_pad();
+  const int crop_pad_new_size = param_.crop_pad_new_size();
   const int img_channels = cv_img.channels();
   const int img_height = cv_img.rows;
   const int img_width = cv_img.cols;
@@ -501,8 +623,8 @@ vector<int> DataTransformer<Dtype>::InferBlobShape(const cv::Mat& cv_img) {
   vector<int> shape(4);
   shape[0] = 1;
   shape[1] = img_channels;
-  shape[2] = (crop_size)? crop_size: img_height;
-  shape[3] = (crop_size)? crop_size: img_width;
+  shape[2] = (crop_size)? crop_size: (crop_pad ? crop_pad_new_size : img_height);
+  shape[3] = (crop_size)? crop_size: (crop_pad ? crop_pad_new_size : img_width);
   return shape;
 }
 

@@ -30,15 +30,18 @@ class ImageDataLayer : public BasePrefetchingDataLayer<Dtype> {
 
   virtual inline const char* type() const { return "ImageData"; }
   virtual inline int ExactNumBottomBlobs() const { return 0; }
-  virtual inline int ExactNumTopBlobs() const { return 2; }
+  virtual inline int MinTopBlobs() const { return 2; }
+  virtual inline int MaxTopBlobs() const { return 3; }
 
  protected:
   shared_ptr<Caffe::RNG> prefetch_rng_;
   virtual void ShuffleImages();
   virtual void load_batch(Batch<Dtype>* batch);
 
-  vector<std::pair<std::string, int> > lines_;
+  vector<std::pair<std::string, std::pair<int, double> > > lines_;
   int lines_id_;
+
+  bool is_output_labels2_; // Now vaild for image data layer
 };
 
 

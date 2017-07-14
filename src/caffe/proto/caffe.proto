@@ -429,6 +429,21 @@ message TransformationParameter {
   optional bool force_color = 6 [default = false];
   // Force the decoded image to have 1 color channels.
   optional bool force_gray = 7 [default = false];
+
+  // Augmentation more
+  // Specify the angle for doing rotate
+  optional float max_rotate_angle = 8 [default = 0.0];
+  // rotate all directions. 90/180/270 degress
+  optional bool rotate_all_directions = 9 [default = false];
+  // Specify the contrast, brightness, smooth and color shift for augmentation
+  optional float min_contrast = 10 [default = 0.0];
+  optional float max_contrast = 11 [default = 0.0];
+  optional uint32 max_brightness_shift = 12 [default = 0];
+  optional uint32 max_smooth = 13 [default = 0];
+  optional uint32 max_color_shift = 14 [default = 0];
+  // crop pad. cutting edge in top, bottom, left and right
+  optional uint32 crop_pad = 15 [default = 0];
+  optional uint32 crop_pad_new_size = 16 [default = 0];
 }
 
 // Message that stores parameters shared by loss layers

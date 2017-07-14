@@ -33,17 +33,27 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
   CHECK((new_height == 0 && new_width == 0) ||
       (new_height > 0 && new_width > 0)) << "Current implementation requires "
       "new_height and new_width to be set at the same time.";
+  is_output_labels2_ = ((top.size() == 3) ? true : false);
   // Read the file with filenames and labels
   const string& source = this->layer_param_.image_data_param().source();
   LOG(INFO) << "Opening file " << source;
   std::ifstream infile(source.c_str());
   string line;
-  size_t pos;
+  size_t pos, pos0, pos1;
   int label;
+  double label2;
   while (std::getline(infile, line)) {
-    pos = line.find_last_of(' ');
-    label = atoi(line.substr(pos + 1).c_str());
-    lines_.push_back(std::make_pair(line.substr(0, pos), label));
+    if (is_output_labels2_) {
+      pos1 = line.find_last_of(' ');
+      pos0 = line.substr(0, pos1).find_last_of(' ');
+      label = atoi(line.substr(pos0 + 1, pos1).c_str());
+      label2 = atof(line.substr(pos1 + 1).c_str());
+      lines_.push_back(std::make_pair(line.substr(0, pos0), std::make_pair(label, label2)));
+    } else {
+      pos = line.find_last_of(' ');
+      label = atoi(line.substr(pos + 1).c_str());
+      lines_.push_back(std::make_pair(line.substr(0, pos), std::make_pair(label, 0.0)));
+    }
   }
 
   CHECK(!lines_.empty()) << "File is empty";
@@ -92,9 +102,16 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       << top[0]->width();
   // label
   vector<int> label_shape(1, batch_size);
+  vector<int> label2_shape(1, batch_size);
   top[1]->Reshape(label_shape);
+  if (is_output_labels2_) {
+    top[2]->Reshape(label2_shape);
+  }
   for (int i = 0; i < this->prefetch_.size(); ++i) {
     this->prefetch_[i]->label_.Reshape(label_shape);
+    if (is_output_labels2_) {
+      this->prefetch_[i]->label2_.Reshape(label2_shape);
+    }
   }
 }
 
@@ -136,6 +153,10 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 
   Dtype* prefetch_data = batch->data_.mutable_cpu_data();
   Dtype* prefetch_label = batch->label_.mutable_cpu_data();
+  Dtype* prefetch_label2;
+  if (is_output_labels2_) {
+    prefetch_label2 = batch->label2_.mutable_cpu_data();
+  }
 
   // datum scales
   const int lines_size = lines_.size();
@@ -154,7 +175,10 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     this->data_transformer_->Transform(cv_img, &(this->transformed_data_));
     trans_time += timer.MicroSeconds();
 
-    prefetch_label[item_id] = lines_[lines_id_].second;
+    prefetch_label[item_id] = lines_[lines_id_].second.first;
+    if (is_output_labels2_) {
+      prefetch_label2[item_id] = lines_[lines_id_].second.second;
+    }
     // go to the next iter
     lines_id_++;
     if (lines_id_ >= lines_size) {
